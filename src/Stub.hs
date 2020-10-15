@@ -138,7 +138,7 @@ instance ChaincodeStubInterface DefaultChaincodeStub where
                 listenForResponse (recvStream ccs)
 
     -- TODO: Implement better error handling/checks etc
-    -- getStateByRange :: ccs -> Text -> Text -> IO (Either Error StateQueryIterator)
+    -- getStateByRange :: ccs -> Text -> Text -> ExceptT Error IO StateQueryIterator
     getStateByRange ccs startKey endKey =
         let payload = getStateByRangePayload startKey endKey Nothing
             message = buildChaincodeMessage GET_STATE_BY_RANGE payload (txId ccs) (channelId ccs)
@@ -150,8 +150,7 @@ instance ChaincodeStubInterface DefaultChaincodeStub where
                     Right _ -> pure ()
                 runExceptT $ ExceptT (listenForResponse (recvStream ccs)) >>= (bsToSqi ccs)
 
-    -- TODO: We need to implement this so we can test the fetchNextQueryResult functionality
-      -- getStateByRangeWithPagination :: ccs -> Text -> Text -> Int -> Text -> IO (Either Error (StateQueryIterator, Pb.QueryResponseMetadata))
+    -- getStateByRangeWithPagination :: ccs -> Text -> Text -> Int -> Text -> IO (Either Error (StateQueryIterator, Pb.QueryResponseMetadata))
     getStateByRangeWithPagination ccs startKey endKey pageSize bookmark =
         let metadata = Pb.QueryMetadata { Pb.queryMetadataPageSize = fromIntegral pageSize
                                         , Pb.queryMetadataBookmark = TL.fromStrict bookmark
@@ -166,13 +165,29 @@ instance ChaincodeStubInterface DefaultChaincodeStub where
                     Right _ -> pure ()
                 runExceptT $ ExceptT (listenForResponse (recvStream ccs)) >>= (bsToSqiAndMeta ccs)
 
-    -- TODO: This is the next TODO! Implement these 7 function because they are needed in marbles.hs
-    -- getStateByPartialCompositeKey :: ccs -> Text -> [Text] -> Either Error StateQueryIterator
-    getStateByPartialCompositeKey ccs objectType keys = throwError $ Error "not implemented"
+    -- This function uses the compositeKey created by the createCompositeKey
+    -- function as the starting key for the range query. The endKey is the
+    -- startKey plus the maximum (and unallocated) code point (U+10FFFF), which
+    -- corresponds to the integer 1114111.
+    -- getStateByPartialCompositeKey :: ccs -> Text -> [Text] -> ExceptT Error IO StateQueryIterator 
+    getStateByPartialCompositeKey ccs objectType keys = let maxCodePoint = [ chr 1114111 ] in
+        do
+            startingPartialCompositeKey <- ExceptT $ pure $ createCompositeKey ccs objectType keys
+            getStateByRange ccs startingPartialCompositeKey (TS.pack $ TS.unpack startingPartialCompositeKey ++ maxCodePoint)
 
-    --getStateByPartialCompositeKeyWithPagination :: ccs -> Text -> [Text] -> Int32 -> Text -> Either Error (StateQueryIterator, Pb.QueryResponseMetadata)
-    getStateByPartialCompositeKeyWithPagination ccs objectType keys pageSize bookmark =
-        throwError $ Error "not implemented"
+    -- Similarly to getStateByPartialCompositeKey, this function uses the
+    -- compositeKey created by createCompositeKey as the starting key for the
+    -- range query, which in this case is getStateByRangeWithPagination. The
+    -- endKey is the startKey plus the maximum (and unallocated) code point
+    -- (U+10FFFF), which corresponds to the integer 1114111.
+    -- getStateByPartialCompositeKeyWithPagination :: ccs -> Text ->
+    --          [Text] -> Int -> Text -> ExceptT Error IO (StateQueryIterator,
+    --          Pb.QueryResponseMetadata)
+    getStateByPartialCompositeKeyWithPagination ccs objectType keys pageSize bookmark = 
+        let maxCodePoint = [ chr 1114111 ] in
+        do
+            startingPartialCompositeKey <- ExceptT $ pure $ createCompositeKey ccs objectType keys
+            getStateByRangeWithPagination ccs startingPartialCompositeKey (TS.pack $ TS.unpack startingPartialCompositeKey ++ maxCodePoint) pageSize bookmark
 
     --createCompositeKey :: ccs -> Text -> [Text] -> Either Error Text
     createCompositeKey ccs objectType keys =
@@ -320,6 +335,7 @@ fetchNextQueryResult sqi = do
                     Left err -> error ("Error while streaming: " ++ show err)
                     Right _ -> pure ()
                 runExceptT $ ExceptT (listenForResponse (recvStream $ sqiChaincodeStub sqi)) >>= bsToQueryResponse
+                
 -- --getPrivateData :: ccs -> String -> String -> Either Error ByteString
 -- getPrivateData ccs collection key = Left notImplemented
 --
