@@ -140,14 +140,25 @@ transferMarble s params =
                                          putState s (head params) marbleJSON)
     else pure $ errorPayload "Incorrect arguments. Need a marble name and new owner"
 
--- -- TODO: Once indexing by color has been implemented, need to
--- -- get marble and also delete marble composite key
 deleteMarble :: DefaultChaincodeStub -> [Text] -> IO Pb.Response
-deleteMarble s params = if Prelude.length params == 1
-                        then eitherToPbResponse <$> (runExceptT $ do
-                                                         _ <- delState s (head params)
-                                                         pure $ successPayload Nothing)
-                        else pure $ errorPayload "Incorrect arguments. Need a marble name"
+deleteMarble s params =
+    if Prelude.length params == 1
+    then eitherToPbResponse
+        <$> (runExceptT $ do
+                 response <- getState s (head params)
+                 if BS.length response == 0
+                     then throwError $ Error $ "Marble not found"
+                     else let maybeMarble = decode (LBS.fromStrict response) :: Maybe Marble
+                              indexName = "color~name"
+                          in
+                              case maybeMarble of
+                                  Nothing -> throwError $ Error "Error decoding marble"
+                                  Just marble -> do
+                                      _ <- delState s (head params)
+                                      colorNameIndexKey <- ExceptT $ pure $
+                                          createCompositeKey s indexName [ color marble, name marble ]
+                                      delState s colorNameIndexKey)
+    else pure $ errorPayload "Incorrect arguments. Need a marble name"
 
 readMarble :: DefaultChaincodeStub -> [Text] -> IO Pb.Response
 readMarble s params = if Prelude.length params == 1
