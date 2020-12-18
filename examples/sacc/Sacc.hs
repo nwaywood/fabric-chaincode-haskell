@@ -30,8 +30,8 @@ chaincodeStub = ChaincodeStub { initFn   = initFunc
 initFunc :: DefaultChaincodeStub -> IO Pb.Response
 initFunc s = let initArgs = getStringArgs s
              in
-                 if Prelude.length initArgs == 2
-                 then eitherToPbResponse <$> (runExceptT $ putState s (head initArgs) (encodeUtf8 $ initArgs !! 1))
+                 if Prelude.length initArgs == 3
+                 then eitherToPbResponse <$> (runExceptT $ putState s (initArgs !! 1) (encodeUtf8 $ initArgs !! 2))
                  else pure $ errorPayload "Incorrect arguments. Expecting a key and a value"
 
 invokeFunc :: DefaultChaincodeStub -> IO Pb.Response
